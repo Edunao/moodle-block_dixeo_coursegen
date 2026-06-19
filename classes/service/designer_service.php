@@ -25,6 +25,7 @@ use block_dixeo_designer\service\cache\prepare_progress_cache;
 use block_dixeo_designer\service\remote\dixeo_remote_adapter;
 use local_dixeo\service\course_image_writer;
 use local_dixeo\service\image_poll_manager;
+use local_dixeo\service\pluginfile_image_helper;
 use block_dixeo_designer\service\structure\repository as structure_repository;
 use block_dixeo_designer\service\submission\file_service as submission_file_service;
 use block_dixeo_designer\service\submission\service as submission_service;
@@ -868,7 +869,7 @@ class designer_service {
             $this->cancel_image_job_if_running($structure->imagejobid ?? null);
         }
 
-        $imagesbase64 = [course_image_writer::image_url_to_base64($currentimage)];
+        $imagesbase64 = [pluginfile_image_helper::image_url_to_base64($currentimage)];
 
         $operation = $this->get_image_service()->submit_course_image_edit_job(
             (int) $submission->courseid,
@@ -1164,7 +1165,7 @@ class designer_service {
      * @return void
      */
     private function try_apply_designer_saved_image_to_course(int $courseid, string $imageurl, int $userid): void {
-        $file = course_image_writer::get_stored_file_from_pluginfile_url($imageurl);
+        $file = pluginfile_image_helper::get_stored_file_from_pluginfile_url($imageurl);
         if (!$file) {
             return;
         }
