@@ -20,6 +20,9 @@ defined('MOODLE_INTERNAL') || die();
 
 use block_dixeo_designer\local\dixeo_capability;
 use block_dixeo_designer\workflow_constants;
+use local_dixeo\service\image\job_orchestrator;
+use local_dixeo\service\image\policy;
+use local_dixeo\service\image\structure\structure_target;
 
 /**
  * Creates and finalizes Moodle courses for the designer workflow (block-owned).
@@ -360,9 +363,9 @@ class designer_course_creation_service {
             return false;
         }
 
-        if (!\local_dixeo\service\image_generation_policy::is_enabled(
-            \local_dixeo\service\image_generation_policy::ENTITY_SECTION,
-            \local_dixeo\service\image_generation_policy::ACTION_GENERATE
+        if (!policy::is_enabled(
+            policy::ENTITY_SECTION,
+            policy::ACTION_GENERATE
         )) {
             return false;
         }
@@ -448,14 +451,8 @@ class designer_course_creation_service {
                 if ($remotejobid === '') {
                     continue;
                 }
-                \local_dixeo\service\image_poll_manager::queue_poll_task(
-                    $courseid,
-                    $remotejobid,
-                    $userid,
-                    0,
-                    \local_dixeo\service\image_poll_manager::SCOPE_FORMAT_SECTION,
-                    (int) $section->id
-                );
+                $target = structure_target::format_section($courseid, (int) $section->id);
+                job_orchestrator::submit_and_queue($target, $remotejobid, $userid);
             } catch (\Throwable $e) {
                 debugging(
                     'designer_course_creation_service: section image job failed course=' . $courseid .

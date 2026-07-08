@@ -23,15 +23,17 @@ use block_dixeo_designer\cancellation\cancellation_policy_resolver;
 use block_dixeo_designer\local\dixeo_capability;
 use block_dixeo_designer\service\cache\prepare_progress_cache;
 use block_dixeo_designer\service\remote\dixeo_remote_adapter;
-use local_dixeo\service\course_image_writer;
-use local_dixeo\service\image_poll_manager;
-use local_dixeo\service\pluginfile_image_helper;
+use local_dixeo\service\image\job_orchestrator;
+use local_dixeo\service\image\pluginfile_helper;
+use local_dixeo\service\image\policy;
+use local_dixeo\service\image_generation_service;
+use local_dixeo\service\image\poll\manager as poll_manager;
+use local_dixeo\service\image\structure\structure_target;
+use local_dixeo\service\image\structure\writer;
 use block_dixeo_designer\service\structure\repository as structure_repository;
 use block_dixeo_designer\service\submission\file_service as submission_file_service;
 use block_dixeo_designer\service\submission\service as submission_service;
 use block_dixeo_designer\workflow_constants;
-use local_dixeo\service\image_generation_policy;
-use local_dixeo\service\image_generation_service;
 
 /**
  * Designer workflow: start generation, poll status, finalize or cancel.
@@ -721,7 +723,7 @@ class designer_service {
         }
 
         if ($courseid !== null) {
-            image_poll_manager::delete_queued_poll_tasks($courseid);
+            poll_manager::delete_queued(structure_target::course_overview($courseid));
         }
 
         if ($plan->delete_draft_course && $courseid !== null) {
@@ -805,9 +807,9 @@ class designer_service {
             throw new \moodle_exception('structurenotfound', 'block_dixeo_designer');
         }
 
-        if (image_generation_policy::is_enabled(
-            image_generation_policy::ENTITY_COURSE,
-            image_generation_policy::ACTION_GENERATE
+        if (policy::is_enabled(
+            policy::ENTITY_COURSE,
+            policy::ACTION_GENERATE
         )) {
             $this->cancel_image_job_if_running($structure->imagejobid ?? null);
         }
@@ -825,7 +827,9 @@ class designer_service {
             $payloadsummary
         );
         $this->structures->set_image_state($jobid, (string) $operation->jobid, 'pending', null);
-        image_poll_manager::delete_queued_poll_tasks((int) $submission->courseid);
+        $coursetarget = structure_target::course_overview((int) $submission->courseid);
+        poll_manager::delete_queued($coursetarget);
+        job_orchestrator::submit_and_queue($coursetarget, (string) $operation->jobid, $userid);
 
         return [
             'started' => true,
@@ -862,14 +866,14 @@ class designer_service {
             throw new \moodle_exception('invalidinput', 'block_dixeo_designer');
         }
 
-        if (image_generation_policy::is_enabled(
-            image_generation_policy::ENTITY_COURSE,
-            image_generation_policy::ACTION_EDIT
+        if (policy::is_enabled(
+            policy::ENTITY_COURSE,
+            policy::ACTION_EDIT
         )) {
             $this->cancel_image_job_if_running($structure->imagejobid ?? null);
         }
 
-        $imagesbase64 = [pluginfile_image_helper::image_url_to_base64($currentimage)];
+        $imagesbase64 = [pluginfile_helper::image_url_to_base64($currentimage)];
 
         $operation = $this->get_image_service()->submit_course_image_edit_job(
             (int) $submission->courseid,
@@ -879,7 +883,9 @@ class designer_service {
             image_generation_service::DEFAULT_QUALITY
         );
         $this->structures->set_image_state($jobid, (string) $operation->jobid, 'pending', null);
-        image_poll_manager::delete_queued_poll_tasks((int) $submission->courseid);
+        $coursetarget = structure_target::course_overview((int) $submission->courseid);
+        poll_manager::delete_queued($coursetarget);
+        job_orchestrator::submit_and_queue($coursetarget, (string) $operation->jobid, $userid);
 
         return [
             'started' => true,
@@ -913,9 +919,9 @@ class designer_service {
         if ($imagejobid === '') {
             // Auto-start when structure has no image yet (first visit after generation).
             if (!$image && !empty($submission->courseid)
-                    && image_generation_policy::is_enabled(
-                        image_generation_policy::ENTITY_COURSE,
-                        image_generation_policy::ACTION_GENERATE
+                    && policy::is_enabled(
+                        policy::ENTITY_COURSE,
+                        policy::ACTION_GENERATE
                     )) {
                 $this->start_structure_image_generation($jobid, $userid);
                 return [
@@ -994,7 +1000,7 @@ class designer_service {
         }
 
         if ($submission && !empty($submission->courseid)) {
-            image_poll_manager::delete_queued_poll_tasks((int) $submission->courseid);
+            poll_manager::delete_queued(structure_target::course_overview((int) $submission->courseid));
         }
     }
 
@@ -1023,9 +1029,9 @@ class designer_service {
         $mode = trim($finalizemode);
 
         if ($mode === 'quick') {
-            if (!image_generation_policy::is_enabled(
-                image_generation_policy::ENTITY_COURSE,
-                image_generation_policy::ACTION_GENERATE
+            if (!policy::is_enabled(
+                policy::ENTITY_COURSE,
+                policy::ACTION_GENERATE
             )) {
                 return;
             }
@@ -1045,7 +1051,8 @@ class designer_service {
                 if ($struct) {
                     $this->structures->set_image_state($jobid, $imagejobid, 'pending', null);
                 }
-                image_poll_manager::queue_poll_task($draftcourseid, $imagejobid, $userid);
+                $coursetarget = structure_target::course_overview($draftcourseid);
+                job_orchestrator::submit_and_queue($coursetarget, $imagejobid, $userid);
             } catch (\Throwable $e) {
                 debugging('designer_service: quick finalize image submit failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
             }
@@ -1061,7 +1068,8 @@ class designer_service {
 
         // In-flight remote image job: poll until complete; the adhoc task applies bytes from the API result.
         if ($imagejobid !== '' && !in_array($status, ['completed', 'failed', 'cancelled'], true)) {
-            image_poll_manager::queue_poll_task($draftcourseid, $imagejobid, $userid);
+            $coursetarget = structure_target::course_overview($draftcourseid);
+            job_orchestrator::submit_and_queue($coursetarget, $imagejobid, $userid);
             return;
         }
 
@@ -1165,7 +1173,7 @@ class designer_service {
      * @return void
      */
     private function try_apply_designer_saved_image_to_course(int $courseid, string $imageurl, int $userid): void {
-        $file = pluginfile_image_helper::get_stored_file_from_pluginfile_url($imageurl);
+        $file = pluginfile_helper::get_stored_file_from_pluginfile_url($imageurl);
         if (!$file) {
             return;
         }
@@ -1176,7 +1184,7 @@ class designer_service {
         if ($binary === '') {
             return;
         }
-        course_image_writer::apply_image_binary_to_course_overview($courseid, $binary, $userid);
+        writer::apply_image_binary_to_course_overview($courseid, $binary, $userid);
     }
 
     /**
@@ -1188,7 +1196,7 @@ class designer_service {
      * @return string
      */
     private function persist_generated_image(string $jobid, array $result, int $userid): string {
-        $binary = course_image_writer::extract_image_binary_from_result($result);
+        $binary = \local_dixeo\service\image\result_helper::extract_image_binary_from_result($result);
         if ($binary === '') {
             throw new \moodle_exception('designer_image_generate_unavailable', 'block_dixeo_designer');
         }

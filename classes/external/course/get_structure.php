@@ -29,7 +29,7 @@ use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
-use local_dixeo\service\image_generation_policy;
+use local_dixeo\service\image\policy;
 
 /**
  * External API class for retrieving course design structure.
@@ -47,13 +47,13 @@ final class get_structure extends external_api {
      */
     private static function course_image_policy_flags(): array {
         return [
-            'image_can_generate' => image_generation_policy::is_enabled(
-                image_generation_policy::ENTITY_COURSE,
-                image_generation_policy::ACTION_GENERATE
+            'image_can_generate' => policy::is_enabled(
+                policy::ENTITY_COURSE,
+                policy::ACTION_GENERATE
             ),
-            'image_can_edit' => image_generation_policy::is_enabled(
-                image_generation_policy::ENTITY_COURSE,
-                image_generation_policy::ACTION_EDIT
+            'image_can_edit' => policy::is_enabled(
+                policy::ENTITY_COURSE,
+                policy::ACTION_EDIT
             ),
         ];
     }
